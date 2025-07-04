@@ -17,15 +17,15 @@ from .agent import ModelSettings
 STTNode = Callable[
     [AsyncIterable[rtc.AudioFrame], ModelSettings],
     Union[
-        Optional[Union[AsyncIterable[stt.SpeechEvent], AsyncIterable[str]]],
-        Awaitable[Optional[Union[AsyncIterable[stt.SpeechEvent], AsyncIterable[str]]]],
+        Optional[Union[AsyncIterable[Union[stt.SpeechEvent, str]]]],
+        Awaitable[Optional[Union[AsyncIterable[Union[stt.SpeechEvent, str]]]]],
     ],
 ]
 LLMNode = Callable[
-    [llm.ChatContext, list[llm.FunctionTool], ModelSettings],
+    [llm.ChatContext, list[Union[llm.FunctionTool, llm.RawFunctionTool]], ModelSettings],
     Union[
-        Optional[Union[AsyncIterable[llm.ChatChunk], AsyncIterable[str], str]],
-        Awaitable[Optional[Union[AsyncIterable[llm.ChatChunk], AsyncIterable[str], str]]],
+        Optional[Union[AsyncIterable[Union[llm.ChatChunk, str]], str, llm.ChatChunk]],
+        Awaitable[Optional[Union[AsyncIterable[Union[llm.ChatChunk, str]], str, llm.ChatChunk]]],
     ],
 ]
 TTSNode = Callable[
@@ -57,7 +57,8 @@ class AudioInput:
     def __aiter__(self) -> AsyncIterator[rtc.AudioFrame]:
         return self
 
-    async def __anext__(self) -> rtc.AudioFrame: ...
+    async def __anext__(self) -> rtc.AudioFrame:
+        raise NotImplementedError
 
     def on_attached(self) -> None: ...
 
@@ -68,7 +69,8 @@ class VideoInput:
     def __aiter__(self) -> AsyncIterator[rtc.VideoFrame]:
         return self
 
-    async def __anext__(self) -> rtc.VideoFrame: ...
+    async def __anext__(self) -> rtc.VideoFrame:
+        raise NotImplementedError
 
     def on_attached(self) -> None: ...
 
@@ -80,7 +82,10 @@ class PlaybackFinishedEvent:
     playback_position: float
     """How much of the audio was played back"""
     interrupted: bool
-    """interrupted is True if playback was interrupted (clear_buffer() was called)"""
+    """Interrupted is True if playback was interrupted (clear_buffer() was called)"""
+    synchronized_transcript: str | None = None
+    """Transcript synced with playback; may be partial if the audio was interrupted
+    When None, the transcript is not synchronized with the playback"""
 
 
 class AudioOutput(ABC, rtc.EventEmitter[Literal["playback_finished"]]):
@@ -112,10 +117,17 @@ class AudioOutput(ABC, rtc.EventEmitter[Literal["playback_finished"]]):
                 lambda ev: self.on_playback_finished(
                     interrupted=ev.interrupted,
                     playback_position=ev.playback_position,
+                    synchronized_transcript=ev.synchronized_transcript,
                 ),
             )
 
-    def on_playback_finished(self, *, playback_position: float, interrupted: bool) -> None:
+    def on_playback_finished(
+        self,
+        *,
+        playback_position: float,
+        interrupted: bool,
+        synchronized_transcript: str | None = None,
+    ) -> None:
         """
         Developers building audio sinks must call this method when a playback/segment is finished.
         Segments are segmented by calls to flush() or clear_buffer()
@@ -130,7 +142,11 @@ class AudioOutput(ABC, rtc.EventEmitter[Literal["playback_finished"]]):
         self.__playback_finished_count += 1
         self.__playback_finished_event.set()
 
-        ev = PlaybackFinishedEvent(playback_position=playback_position, interrupted=interrupted)
+        ev = PlaybackFinishedEvent(
+            playback_position=playback_position,
+            interrupted=interrupted,
+            synchronized_transcript=synchronized_transcript,
+        )
         self.__last_playback_ev = ev
         self.emit("playback_finished", ev)
 
@@ -222,7 +238,9 @@ class VideoOutput(ABC):
 
 
 class AgentInput:
-    def __init__(self, video_changed: Callable, audio_changed: Callable) -> None:
+    def __init__(
+        self, video_changed: Callable[[], None], audio_changed: Callable[[], None]
+    ) -> None:
         self._video_stream: VideoInput | None = None
         self._audio_stream: AudioInput | None = None
         self._video_changed = video_changed
@@ -232,7 +250,7 @@ class AgentInput:
         self._audio_enabled = True
         self._video_enabled = True
 
-    def set_audio_enabled(self, enable: bool):
+    def set_audio_enabled(self, enable: bool) -> None:
         if enable == self._audio_enabled:
             return
 
@@ -246,7 +264,7 @@ class AgentInput:
         else:
             self._audio_stream.on_detached()
 
-    def set_video_enabled(self, enable: bool):
+    def set_video_enabled(self, enable: bool) -> None:
         if enable == self._video_enabled:
             return
 
@@ -290,9 +308,9 @@ class AgentInput:
 class AgentOutput:
     def __init__(
         self,
-        video_changed: Callable,
-        audio_changed: Callable,
-        transcription_changed: Callable,
+        video_changed: Callable[[], None],
+        audio_changed: Callable[[], None],
+        transcription_changed: Callable[[], None],
     ) -> None:
         self._video_sink: VideoOutput | None = None
         self._audio_sink: AudioOutput | None = None
@@ -305,7 +323,7 @@ class AgentOutput:
         self._video_enabled = True
         self._transcription_enabled = True
 
-    def set_video_enabled(self, enabled: bool):
+    def set_video_enabled(self, enabled: bool) -> None:
         if enabled == self._video_enabled:
             return
 
@@ -319,7 +337,7 @@ class AgentOutput:
         else:
             self._video_sink.on_detached()
 
-    def set_audio_enabled(self, enabled: bool):
+    def set_audio_enabled(self, enabled: bool) -> None:
         if enabled == self._audio_enabled:
             return
 
@@ -333,7 +351,7 @@ class AgentOutput:
         else:
             self._audio_sink.on_detached()
 
-    def set_transcription_enabled(self, enabled: bool):
+    def set_transcription_enabled(self, enabled: bool) -> None:
         if enabled == self._transcription_enabled:
             return
 

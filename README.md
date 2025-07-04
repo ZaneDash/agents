@@ -7,13 +7,22 @@
 </picture>
 
 <!--END_BANNER_IMAGE-->
+<br />
 
-<br /><br />
+![PyPI - Version](https://img.shields.io/pypi/v/livekit-agents)
+[![PyPI Downloads](https://static.pepy.tech/badge/livekit-agents/month)](https://pepy.tech/projects/livekit-agents)
+[![Slack community](https://img.shields.io/endpoint?url=https%3A%2F%2Flivekit.io%2Fbadges%2Fslack)](https://livekit.io/join-slack)
+[![Twitter Follow](https://img.shields.io/twitter/follow/livekit)](https://twitter.com/livekit)
+[![Ask DeepWiki for understanding the codebase](https://deepwiki.com/badge.svg)](https://deepwiki.com/livekit/agents)
+[![License](https://img.shields.io/github/license/livekit/livekit)](https://github.com/livekit/livekit/blob/master/LICENSE)
+
+<br />
+
 Looking for the JS/TS library? Check out [AgentsJS](https://github.com/livekit/agents-js)
 
 ## ✨ 1.0 release ✨
 
-This README reflects the upcoming 1.0 release. For documentation on the current 0.x release, see the [0.x branch](https://github.com/livekit/agents/tree/0.x)
+This README reflects the 1.0 release. For documentation on the previous 0.x release, see the [0.x branch](https://github.com/livekit/agents/tree/0.x)
 
 ## What is Agents?
 
@@ -30,6 +39,8 @@ The **Agents framework** enables you to build voice AI agents that can see, hear
 - **Extensive WebRTC clients**: Build client applications using LiveKit's open-source SDK ecosystem, supporting nearly all major platforms.
 - **Telephony integration**: Works seamlessly with LiveKit's [telephony stack](https://docs.livekit.io/sip/), allowing your agent to make calls to or receive calls from phones.
 - **Exchange data with clients**: Use [RPCs](https://docs.livekit.io/home/client/data/rpc/) and other [Data APIs](https://docs.livekit.io/home/client/data/) to seamlessly exchange data with clients.
+- **Semantic turn detection**: Uses a transformer model to detect when a user is done with their turn, helps to reduce interruptions.
+- **MCP support**: Native support for MCP. Integrate tools provided by MCP servers with one loc.
 - **Open-source**: Fully open-source, allowing you to run the entire stack on your own servers, including [LiveKit server](https://github.com/livekit/livekit), one of the most widely used WebRTC media servers.
 
 ## Installation
@@ -37,20 +48,21 @@ The **Agents framework** enables you to build voice AI agents that can see, hear
 To install the core Agents library, along with plugins for popular model providers:
 
 ```bash
-pip install "livekit-agents[openai,silero,deepgram,cartesia,turn-detector]~=1.0rc"
+pip install "livekit-agents[openai,silero,deepgram,cartesia,turn-detector]~=1.0"
 ```
 
 ## Docs and guides
 
-Documentation on the framework and how to use it can be found [here](https://docs.livekit.io/agents/v1/)
+Documentation on the framework and how to use it can be found [here](https://docs.livekit.io/agents/)
 
 ## Core concepts
 
 - Agent: An LLM-based application with defined instructions.
 - AgentSession: A container for agents that manages interactions with end users.
 - entrypoint: The starting point for an interactive session, similar to a request handler in a web server.
+- Worker: The main process that coordinates job scheduling and launches agents for user sessions.
 
-## Usage examples
+## Usage
 
 ### Simple voice agent
 
@@ -66,7 +78,7 @@ from livekit.agents import (
     cli,
     function_tool,
 )
-from livekit.plugins import deepgram, openai, silero
+from livekit.plugins import deepgram, elevenlabs, openai, silero
 
 @function_tool
 async def lookup_weather(
@@ -90,7 +102,7 @@ async def entrypoint(ctx: JobContext):
         # any combination of STT, LLM, TTS, or realtime API can be used
         stt=deepgram.STT(model="nova-3"),
         llm=openai.LLM(model="gpt-4o-mini"),
-        tts=openai.TTS(voice="ash"),
+        tts=elevenlabs.TTS(),
     )
 
     await session.start(agent=agent, room=ctx.room)
@@ -103,9 +115,6 @@ if __name__ == "__main__":
 
 You'll need the following environment variables for this example:
 
-- LIVEKIT_URL
-- LIVEKIT_API_KEY
-- LIVEKIT_API_SECRET
 - DEEPGRAM_API_KEY
 - OPENAI_API_KEY
 
@@ -181,29 +190,147 @@ async def entrypoint(ctx: JobContext):
 ...
 ```
 
-### Additional examples
+## Examples
 
----
+<table>
+<tr>
+<td width="50%">
+<h3>🎙️ Starter Agent</h3>
+<p>A starter agent optimized for voice conversations.</p>
+<p>
+<a href="examples/voice_agents/basic_agent.py">Code</a>
+</p>
+</td>
+<td width="50%">
+<h3>🔄 Multi-user push to talk</h3>
+<p>Responds to multiple users in the room via push-to-talk.</p>
+<p>
+<a href="examples/voice_agents/push_to_talk.py">Code</a>
+</p>
+</td>
+</tr>
 
-We've built additional [examples](examples/) including:
+<tr>
+<td width="50%">
+<h3>🎵 Background audio</h3>
+<p>Background ambient and thinking audio to improve realism.</p>
+<p>
+<a href="examples/voice_agents/background_audio.py">Code</a>
+</p>
+</td>
+<td width="50%">
+<h3>🛠️ Dynamic tool creation</h3>
+<p>Creating function tools dynamically.</p>
+<p>
+<a href="examples/voice_agents/dynamic_tool_creation.py">Code</a>
+</p>
+</td>
+</tr>
 
-- [multi-user agent with push to talk](examples/voice_agents/push_to_talk.py)
-- [using parallel function calls](examples/voice_agents/parallel_function_calls.py)
-- [restaurant ordering and reservations](examples/full_examples/restaurant_agent/)
-- [avatar integration](examples/avatar/)
-- [simple video publisher](examples/other/simple-color/)
+<tr>
+<td width="50%">
+<h3>☎️ Outbound caller</h3>
+<p>Agent that makes outbound phone calls</p>
+<p>
+<a href="https://github.com/livekit-examples/outbound-caller-python">Code</a>
+</p>
+</td>
+<td width="50%">
+<h3>📋 Structured output</h3>
+<p>Using structured output from LLM to guide TTS tone.</p>
+<p>
+<a href="examples/voice_agents/structured_output.py">Code</a>
+</p>
+</td>
+</tr>
+
+<tr>
+<td width="50%">
+<h3>🔌 MCP support</h3>
+<p>Use tools from MCP servers</p>
+<p>
+<a href="examples/voice_agents/mcp">Code</a>
+</p>
+</td>
+<td width="50%">
+<h3>💬 Text-only agent</h3>
+<p>Skip voice altogether and use the same code for text-only integrations</p>
+<p>
+<a href="examples/other/text_only.py">Code</a>
+</p>
+</td>
+</tr>
+
+<tr>
+<td width="50%">
+<h3>📝 Multi-user transcriber</h3>
+<p>Produce transcriptions from all users in the room</p>
+<p>
+<a href="examples/other/transcription/multi-user-transcriber.py">Code</a>
+</p>
+</td>
+<td width="50%">
+<h3>🎥 Video avatars</h3>
+<p>Add an AI avatar with Tavus, Beyond Presence, and Bithuman</p>
+<p>
+<a href="examples/avatar_agents/">Code</a>
+</p>
+</td>
+</tr>
+
+<tr>
+<td width="50%">
+<h3>🍽️ Restaurant ordering and reservations</h3>
+<p>Full example of an agent that handles calls for a restaurant.</p>
+<p>
+<a href="examples/voice_agents/restaurant_agent.py">Code</a>
+</p>
+</td>
+<td width="50%">
+<h3>👁️ Gemini Live vision</h3>
+<p>Full example (including iOS app) of Gemini Live agent that can see.</p>
+<p>
+<a href="https://github.com/livekit-examples/vision-demo">Code</a>
+</p>
+</td>
+</tr>
+
+</table>
 
 ## Running your agent
+
+### Testing in terminal
+
+```shell
+python myagent.py console
+```
+
+Runs your agent in terminal mode, enabling local audio input and output for testing.
+This mode doesn't require external servers or dependencies and is useful for quickly validating behavior.
+
+### Developing with LiveKit clients
 
 ```shell
 python myagent.py dev
 ```
 
-This starts the agent server, and your agent will wait for user connections.
-Each process can efficiently host multiple concurrent agents.
+Starts the agent server and enables hot reloading when files change. This mode allows each process to host multiple concurrent agents efficiently.
 
-You can connect to your agent using any app built with LiveKit's client SDKs or telephony integration.
-Alternatively, use the [Agents Playground](https://agents-playground.livekit.io/) to test your agents.
+The agent connects to LiveKit Cloud or your self-hosted server. Set the following environment variables:
+- LIVEKIT_URL
+- LIVEKIT_API_KEY
+- LIVEKIT_API_SECRET
+
+You can connect using any LiveKit client SDK or telephony integration.
+To get started quickly, try the [Agents Playground](https://agents-playground.livekit.io/).
+
+### Running for production
+
+```shell
+python myagent.py start
+```
+
+Runs the agent with production-ready optimizations.
 
 ## Contributing
 

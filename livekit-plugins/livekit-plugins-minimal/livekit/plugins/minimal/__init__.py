@@ -12,6 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Minimal example plugin for LiveKit Agents
+
+This is a stubbed example plugin.
+"""
+
 from livekit.agents import Plugin
 
 from .log import logger
@@ -19,7 +24,7 @@ from .version import __version__
 
 
 class MinimalPlugin(Plugin):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(__name__, __version__, __package__, logger)
 
 

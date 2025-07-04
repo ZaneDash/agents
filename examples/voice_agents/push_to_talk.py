@@ -3,7 +3,7 @@ import logging
 from dotenv import load_dotenv
 
 from livekit import rtc
-from livekit.agents import Agent, AgentSession, JobContext, RoomIO, WorkerOptions, cli
+from livekit.agents import Agent, AgentSession, JobContext, JobRequest, RoomIO, WorkerOptions, cli
 from livekit.agents.llm import ChatContext, ChatMessage, StopResponse
 from livekit.plugins import cartesia, deepgram, openai
 
@@ -61,7 +61,11 @@ async def entrypoint(ctx: JobContext):
     @ctx.room.local_participant.register_rpc_method("end_turn")
     async def end_turn(data: rtc.RpcInvocationData):
         session.input.set_audio_enabled(False)
-        session.commit_user_turn()
+        session.commit_user_turn(
+            # the timeout for the final transcript to be received after committing the user turn
+            # increase this value if the STT is slow to respond
+            transcript_timeout=10.0,
+        )
 
     @ctx.room.local_participant.register_rpc_method("cancel_turn")
     async def cancel_turn(data: rtc.RpcInvocationData):
@@ -70,5 +74,13 @@ async def entrypoint(ctx: JobContext):
         logger.info("cancel turn")
 
 
+async def handle_request(request: JobRequest) -> None:
+    await request.accept(
+        identity="ptt-agent",
+        # this attribute communicates to frontend that we support PTT
+        attributes={"push-to-talk": "1"},
+    )
+
+
 if __name__ == "__main__":
-    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
+    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint, request_fnc=handle_request))

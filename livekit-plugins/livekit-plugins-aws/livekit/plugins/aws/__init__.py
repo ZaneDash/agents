@@ -12,19 +12,59 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .llm import LLM
-from .stt import STT, SpeechStream
-from .tts import TTS, ChunkedStream
-from .version import __version__
+"""AWS plugin for LiveKit Agents
 
-__all__ = ["STT", "SpeechStream", "TTS", "ChunkedStream", "LLM", "__version__"]
+Support for AWS AI including Bedrock, Polly, Transcribe and optionally Nova Sonic.
 
-from livekit.agents import Plugin
+See https://docs.livekit.io/agents/integrations/aws/ for more information.
+"""
+
+import typing  # noqa: I001
+
+
+if typing.TYPE_CHECKING:
+    from .experimental import realtime
+
+
+def __getattr__(name: str) -> typing.Any:
+    if name == "realtime":
+        try:
+            from .experimental import realtime
+        except ImportError as e:
+            raise ImportError(
+                "The 'realtime' module requires optional dependencies. "
+                "Please install them with: pip install 'livekit-plugins-aws[realtime]'"
+            ) from e
+
+        return realtime
+
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+from .llm import LLM  # noqa: E402
+from .stt import STT, SpeechStream  # noqa: E402
+from .tts import TTS, ChunkedStream  # noqa: E402
+from .version import __version__  # noqa: E402
+
+__all__ = ["STT", "SpeechStream", "TTS", "ChunkedStream", "LLM", "realtime", "__version__"]
+
+from livekit.agents import Plugin  # noqa: E402
+
+from .log import logger  # noqa: E402
 
 
 class AWSPlugin(Plugin):
     def __init__(self) -> None:
-        super().__init__(__name__, __version__, __package__)
+        super().__init__(__name__, __version__, __package__, logger)
 
 
 Plugin.register_plugin(AWSPlugin())
+
+# Cleanup docs of unexported modules
+_module = dir()
+NOT_IN_ALL = [m for m in _module if m not in __all__]
+
+__pdoc__ = {}
+
+for n in NOT_IN_ALL:
+    __pdoc__[n] = False

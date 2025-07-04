@@ -12,6 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Contextually-aware turn detection for LiveKit Agents
+
+See https://docs.livekit.io/agents/build/turns/turn-detector/ for more information.
+"""
+
 from livekit.agents import Plugin
 
 from .log import logger
@@ -21,11 +26,11 @@ __all__ = ["english", "multilingual", "__version__"]
 
 
 class EOUPlugin(Plugin):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(__name__, __version__, __package__, logger)
 
     def download_files(self) -> None:
-        from transformers import AutoTokenizer
+        from transformers import AutoTokenizer  # type: ignore
 
         from .base import _download_from_hf_hub
         from .models import HG_MODEL, MODEL_REVISIONS, ONNX_FILENAME
@@ -37,3 +42,12 @@ class EOUPlugin(Plugin):
 
 
 Plugin.register_plugin(EOUPlugin())
+
+# Cleanup docs of unexported modules
+_module = dir()
+NOT_IN_ALL = [m for m in _module if m not in __all__]
+
+__pdoc__ = {}
+
+for n in NOT_IN_ALL:
+    __pdoc__[n] = False

@@ -12,6 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Neuphonic plugin for LiveKit Agents
+
+See https://docs.livekit.io/agents/integrations/tts/neuphonic/ for more information.
+"""
+
 from .tts import TTS, ChunkedStream
 from .version import __version__
 
@@ -23,7 +28,7 @@ from .log import logger
 
 
 class NeuphonicPlugin(Plugin):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(__name__, __version__, __package__, logger)
 
 

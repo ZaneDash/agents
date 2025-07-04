@@ -29,7 +29,7 @@ from typing import (
     runtime_checkable,
 )
 
-from typing_extensions import Required, TypedDict, TypeGuard
+from typing_extensions import NotRequired, Required, TypedDict, TypeGuard
 
 
 # Used by ToolChoice
@@ -83,12 +83,54 @@ class _FunctionToolInfo:
 
 @runtime_checkable
 class FunctionTool(Protocol):
-    __livekit_agents_ai_callable: _FunctionToolInfo
+    __livekit_tool_info: _FunctionToolInfo
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any: ...
+
+
+class RawFunctionDescription(TypedDict):
+    """
+    Represents the raw function schema format used in LLM function calling APIs.
+
+    This structure directly maps to OpenAI's function definition format as documented at:
+    https://platform.openai.com/docs/guides/function-calling?api-mode=responses
+
+    It is also compatible with other LLM providers that support raw JSON Schema-based
+    function definitions.
+    """
+
+    name: str
+    description: NotRequired[str | None]
+    parameters: dict[str, object]
+
+
+@dataclass
+class _RawFunctionToolInfo:
+    name: str
+    raw_schema: dict[str, Any]
+
+
+@runtime_checkable
+class RawFunctionTool(Protocol):
+    __livekit_raw_tool_info: _RawFunctionToolInfo
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any: ...
 
 
 F = TypeVar("F", bound=Callable[..., Awaitable[Any]])
+Raw_F = TypeVar("Raw_F", bound=Callable[..., Awaitable[Any]])
+
+
+@overload
+def function_tool(
+    f: Raw_F, *, raw_schema: RawFunctionDescription | dict[str, Any]
+) -> RawFunctionTool: ...
+
+
+@overload
+def function_tool(
+    f: None = None, *, raw_schema: RawFunctionDescription | dict[str, Any]
+) -> Callable[[Raw_F], RawFunctionTool]: ...
 
 
 @overload
@@ -104,9 +146,32 @@ def function_tool(
 
 
 def function_tool(
-    f: F | None = None, *, name: str | None = None, description: str | None = None
-) -> FunctionTool | Callable[[F], FunctionTool]:
-    def deco(func: F) -> FunctionTool:
+    f: F | Raw_F | None = None,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+    raw_schema: RawFunctionDescription | dict[str, Any] | None = None,
+) -> (
+    FunctionTool
+    | RawFunctionTool
+    | Callable[[F], FunctionTool]
+    | Callable[[Raw_F], RawFunctionTool]
+):
+    def deco_raw(func: Raw_F) -> RawFunctionTool:
+        assert raw_schema is not None
+
+        if not raw_schema.get("name"):
+            raise ValueError("raw function name cannot be empty")
+
+        if "parameters" not in raw_schema:
+            # support empty parameters
+            raise ValueError("raw function description must contain a parameters key")
+
+        info = _RawFunctionToolInfo(raw_schema={**raw_schema}, name=raw_schema["name"])
+        setattr(func, "__livekit_raw_tool_info", info)
+        return cast(RawFunctionTool, func)
+
+    def deco_func(func: F) -> FunctionTool:
         from docstring_parser import parse_from_object
 
         docstring = parse_from_object(func)
@@ -114,27 +179,35 @@ def function_tool(
             name=name or func.__name__,
             description=description or docstring.description,
         )
-        setattr(func, "__livekit_agents_ai_callable", info)
+        setattr(func, "__livekit_tool_info", info)
         return cast(FunctionTool, func)
 
     if f is not None:
-        return deco(f)
+        return deco_raw(cast(Raw_F, f)) if raw_schema is not None else deco_func(cast(F, f))
 
-    return deco
+    return deco_raw if raw_schema is not None else deco_func
 
 
-def is_function_tool(f: Callable) -> TypeGuard[FunctionTool]:
-    return hasattr(f, "__livekit_agents_ai_callable")
+def is_function_tool(f: Callable[..., Any]) -> TypeGuard[FunctionTool]:
+    return hasattr(f, "__livekit_tool_info")
 
 
 def get_function_info(f: FunctionTool) -> _FunctionToolInfo:
-    return getattr(f, "__livekit_agents_ai_callable")
+    return cast(_FunctionToolInfo, getattr(f, "__livekit_tool_info"))
 
 
-def find_function_tools(cls_or_obj: Any) -> list[FunctionTool]:
-    methods: list[FunctionTool] = []
+def is_raw_function_tool(f: Callable[..., Any]) -> TypeGuard[RawFunctionTool]:
+    return hasattr(f, "__livekit_raw_tool_info")
+
+
+def get_raw_function_info(f: RawFunctionTool) -> _RawFunctionToolInfo:
+    return cast(_RawFunctionToolInfo, getattr(f, "__livekit_raw_tool_info"))
+
+
+def find_function_tools(cls_or_obj: Any) -> list[FunctionTool | RawFunctionTool]:
+    methods: list[FunctionTool | RawFunctionTool] = []
     for _, member in inspect.getmembers(cls_or_obj):
-        if is_function_tool(member):
+        if is_function_tool(member) or is_raw_function_tool(member):
             methods.append(member)
     return methods
 
@@ -142,7 +215,7 @@ def find_function_tools(cls_or_obj: Any) -> list[FunctionTool]:
 class ToolContext:
     """Stateless container for a set of AI functions"""
 
-    def __init__(self, tools: list[FunctionTool]) -> None:
+    def __init__(self, tools: list[FunctionTool | RawFunctionTool]) -> None:
         self.update_tools(tools)
 
     @classmethod
@@ -150,18 +223,26 @@ class ToolContext:
         return cls([])
 
     @property
-    def function_tools(self) -> dict[str, FunctionTool]:
+    def function_tools(self) -> dict[str, FunctionTool | RawFunctionTool]:
         return self._tools_map.copy()
 
-    def update_tools(self, tools: list[FunctionTool]) -> None:
-        self._tools = tools
+    def update_tools(self, tools: list[FunctionTool | RawFunctionTool]) -> None:
+        self._tools = tools.copy()
 
         for method in find_function_tools(self):
             tools.append(method)
 
-        self._tools_map = {}
+        self._tools_map: dict[str, FunctionTool | RawFunctionTool] = {}
+        info: _FunctionToolInfo | _RawFunctionToolInfo
         for tool in tools:
-            info = get_function_info(tool)
+            if is_raw_function_tool(tool):
+                info = get_raw_function_info(tool)
+            elif is_function_tool(tool):
+                info = get_function_info(tool)
+            else:
+                # TODO(theomonnom): MCP servers & other tools
+                raise ValueError(f"unknown tool type: {type(tool)}")
+
             if info.name in self._tools_map:
                 raise ValueError(f"duplicate function name: {info.name}")
 

@@ -1,15 +1,16 @@
-# LiveKit Plugins AWS
+# AWS plugin for LiveKit Agents
 
-Agent Framework plugin for services from AWS.
+Support for AWS AI including Bedrock, Polly, Transcribe and optionally Nova Sonic (realtime STS model).
 
-- aws polly for tts
-- aws transcribe for stt
-- aws bedrock for llm
+See [https://docs.livekit.io/agents/integrations/aws/](https://docs.livekit.io/agents/integrations/aws/) for more information.
 
 ## Installation
 
 ```bash
 pip install livekit-plugins-aws
+
+# for access to Nova Sonic
+pip install livekit-plugins-aws[realtime]
 ```
 
 ## Pre-requisites

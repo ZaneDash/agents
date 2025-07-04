@@ -12,6 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Groq plugin for LiveKit Agents
+
+Support for STT, TTS, and LLM with Groq fast inference.
+
+See https://docs.livekit.io/agents/integrations/groq/ for more information.
+"""
+
 from livekit.agents import Plugin
 
 from .log import logger
@@ -23,8 +30,17 @@ __all__ = ["TTS", "LLM", "STT", "__version__"]
 
 
 class GroqPlugin(Plugin):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(__name__, __version__, __package__, logger)
 
 
 Plugin.register_plugin(GroqPlugin())
+
+# Cleanup docs of unexported modules
+_module = dir()
+NOT_IN_ALL = [m for m in _module if m not in __all__]
+
+__pdoc__ = {}
+
+for n in NOT_IN_ALL:
+    __pdoc__[n] = False

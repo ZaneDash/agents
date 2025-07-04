@@ -50,6 +50,7 @@ from openai.types.beta.realtime.transcription_session_update_param import (
 
 from .log import logger
 from .models import GroqAudioModels, STTModels
+from .utils import AsyncAzureADTokenProvider
 
 # OpenAI Realtime API has a timeout of 15 mins, we'll attempt to restart the session
 # before that timeout is reached
@@ -151,6 +152,66 @@ class STT(stt.STT):
         )
 
     @staticmethod
+    def with_azure(
+        *,
+        language: str = "en",
+        detect_language: bool = False,
+        model: STTModels | str = "gpt-4o-mini-transcribe",
+        prompt: NotGivenOr[str] = NOT_GIVEN,
+        turn_detection: NotGivenOr[SessionTurnDetection] = NOT_GIVEN,
+        noise_reduction_type: NotGivenOr[str] = NOT_GIVEN,
+        azure_endpoint: str | None = None,
+        azure_deployment: str | None = None,
+        api_version: str | None = None,
+        api_key: str | None = None,
+        azure_ad_token: str | None = None,
+        azure_ad_token_provider: AsyncAzureADTokenProvider | None = None,
+        organization: str | None = None,
+        project: str | None = None,
+        base_url: str | None = None,
+        use_realtime: bool = False,
+        timeout: httpx.Timeout | None = None,
+    ) -> STT:
+        """
+        Create a new instance of Azure OpenAI STT.
+
+        This automatically infers the following arguments from their corresponding environment variables if they are not provided:
+        - `api_key` from `AZURE_OPENAI_API_KEY`
+        - `organization` from `OPENAI_ORG_ID`
+        - `project` from `OPENAI_PROJECT_ID`
+        - `azure_ad_token` from `AZURE_OPENAI_AD_TOKEN`
+        - `api_version` from `OPENAI_API_VERSION`
+        - `azure_endpoint` from `AZURE_OPENAI_ENDPOINT`
+        """  # noqa: E501
+
+        azure_client = openai.AsyncAzureOpenAI(
+            max_retries=0,
+            azure_endpoint=azure_endpoint,
+            azure_deployment=azure_deployment,
+            api_version=api_version,
+            api_key=api_key,
+            azure_ad_token=azure_ad_token,
+            azure_ad_token_provider=azure_ad_token_provider,
+            organization=organization,
+            project=project,
+            base_url=base_url,
+            timeout=timeout
+            if timeout
+            else httpx.Timeout(connect=15.0, read=5.0, write=5.0, pool=5.0),
+        )  # type: ignore
+
+        return STT(
+            language=language,
+            detect_language=detect_language,
+            model=model,
+            prompt=prompt,
+            turn_detection=turn_detection,
+            noise_reduction_type=noise_reduction_type,
+            client=azure_client,
+            use_realtime=use_realtime,
+        )
+
+    @staticmethod
     def with_groq(
         *,
         model: GroqAudioModels | str = "whisper-large-v3-turbo",
@@ -241,7 +302,7 @@ class STT(stt.STT):
             if is_given(language):
                 stream.update_options(language=language)
 
-    async def _connect_ws(self) -> aiohttp.ClientWebSocketResponse:
+    async def _connect_ws(self, timeout: float) -> aiohttp.ClientWebSocketResponse:
         prompt = self._opts.prompt if is_given(self._opts.prompt) else ""
         realtime_config: dict[str, Any] = {
             "type": "transcription_session.update",
@@ -277,14 +338,11 @@ class STT(stt.STT):
             url = url.replace("http", "ws", 1)
 
         session = self._ensure_session()
-        ws = await asyncio.wait_for(
-            session.ws_connect(url, headers=headers),
-            DEFAULT_API_CONNECT_OPTIONS.timeout,
-        )
+        ws = await asyncio.wait_for(session.ws_connect(url, headers=headers), timeout)
         await ws.send_json(realtime_config)
         return ws
 
-    async def _close_ws(self, ws: aiohttp.ClientWebSocketResponse):
+    async def _close_ws(self, ws: aiohttp.ClientWebSocketResponse) -> None:
         await ws.close()
 
     def _ensure_session(self) -> aiohttp.ClientSession:
@@ -362,7 +420,7 @@ class SpeechStream(stt.SpeechStream):
         self,
         *,
         language: str,
-    ):
+    ) -> None:
         self._language = language
         self._pool.invalidate()
         self._reconnect_event.set()
@@ -372,7 +430,7 @@ class SpeechStream(stt.SpeechStream):
         closing_ws = False
 
         @utils.log_exceptions(logger=logger)
-        async def send_task(ws: aiohttp.ClientWebSocketResponse):
+        async def send_task(ws: aiohttp.ClientWebSocketResponse) -> None:
             nonlocal closing_ws
 
             # forward audio to OAI in chunks of 50ms
@@ -399,7 +457,7 @@ class SpeechStream(stt.SpeechStream):
             closing_ws = True
 
         @utils.log_exceptions(logger=logger)
-        async def recv_task(ws: aiohttp.ClientWebSocketResponse):
+        async def recv_task(ws: aiohttp.ClientWebSocketResponse) -> None:
             nonlocal closing_ws
             current_text = ""
             last_interim_at: float = 0
@@ -469,17 +527,19 @@ class SpeechStream(stt.SpeechStream):
                     logger.exception("failed to process OpenAI message")
 
         while True:
-            async with self._pool.connection() as ws:
+            closing_ws = False  # reset the flag
+            async with self._pool.connection(timeout=self._conn_options.timeout) as ws:
                 tasks = [
                     asyncio.create_task(send_task(ws)),
                     asyncio.create_task(recv_task(ws)),
                 ]
+                tasks_group = asyncio.gather(*tasks)
                 wait_reconnect_task = asyncio.create_task(self._reconnect_event.wait())
                 try:
                     done, _ = await asyncio.wait(
-                        [asyncio.gather(*tasks), wait_reconnect_task],
+                        (tasks_group, wait_reconnect_task),
                         return_when=asyncio.FIRST_COMPLETED,
-                    )  # type: ignore
+                    )
 
                     # propagate exceptions from completed tasks
                     for task in done:
@@ -492,3 +552,5 @@ class SpeechStream(stt.SpeechStream):
                     self._reconnect_event.clear()
                 finally:
                     await utils.aio.gracefully_cancel(*tasks, wait_reconnect_task)
+                    tasks_group.cancel()
+                    tasks_group.exception()  # retrieve the exception

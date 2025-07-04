@@ -12,20 +12,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Google AI plugin for LiveKit Agents
+
+Supports Gemini, Cloud Speech-to-Text, and Cloud Text-to-Speech.
+
+See https://docs.livekit.io/agents/integrations/stt/google/ for more information.
+"""
+
 from . import beta
 from .llm import LLM
 from .stt import STT, SpeechStream
+from .tools import _LLMTool
 from .tts import TTS
 from .version import __version__
 
-__all__ = ["STT", "TTS", "SpeechStream", "__version__", "beta", "LLM"]
+__all__ = ["STT", "TTS", "SpeechStream", "__version__", "beta", "LLM", "_LLMTool"]
 from livekit.agents import Plugin
 
 from .log import logger
 
 
 class GooglePlugin(Plugin):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(__name__, __version__, __package__, logger)
 
 
